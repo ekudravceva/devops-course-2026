@@ -2,7 +2,7 @@
 
 ## 1. Параметры машины
 - Гипервизор: Oracle VirtualBox 7.x на macOS (Apple Silicon)
-- ОС: Ubuntu Server 24.04 LTS (arm64)
+- ОС: Ubuntu Server 26.10 (arm64)
 - Оперативная память: 2048 МБ
 - Ядра процессора: 2
 - Диск: 25 ГБ, динамически расширяемый
@@ -10,10 +10,10 @@
 ## 2. Сетевые интерфейсы
 | Адаптер | Тип | Адрес | Назначение |
 |---|---|---|---|
-| 1 | NAT | 10.0.2.15 | выход в Интернет (репозитории пакетов), проброс порта SSH |
-| 2 | Host-only | 192.168.56.101 | доступ с хоста (SSH по имени, веб-сервер в ПР № 6) |
+| 1 | NAT (enp0s8) | 10.0.2.15 | выход в Интернет (репозитории пакетов), проброс порта SSH |
+| 2 | Host-only (enp0s9) | 192.168.56.2 | доступ с хоста (SSH по имени, веб-сервер в ПР № 6) |
 
-Имя узла: `devops-vm`, полное имя: `devops-vm.devops.local`. На хосте в `/etc/hosts`: `192.168.56.101 devops.local`.
+Имя узла: `devops-vm`, полное имя: `devops-vm.devops.local`. На хосте в `/etc/hosts`: `192.168.56.2 devops.local`.
 
 ## 3. Правило проброса портов
 Адаптер 1 (NAT), правило `ssh`: TCP, хост 127.0.0.1:2222 → гость :2222 (до смены порта SSH — :22).
@@ -48,3 +48,16 @@
 | 01-clean-install | после установки ОС и обновления, ВМ выключена |
 | 02-keys-configured | после настройки ключа и `~/.ssh/config` (задание 1) |
 | 03-ssh-hardened | после усиления защиты SSH (задание 2) |
+| 04-nginx-https | после установки Nginx и перевода ресурса на HTTPS (ПР № 6, задание 2) |
+
+## 8. Веб-сервер
+- Устанавливаемый пакет: `nginx` (`sudo apt install -y nginx`); стандартный ресурс отключён удалением ссылки `/etc/nginx/sites-enabled/default`
+- Конфигурация ресурса: `/etc/nginx/sites-available/devops-site`, активируется ссылкой в `/etc/nginx/sites-enabled/` (`sudo ln -s /etc/nginx/sites-available/devops-site /etc/nginx/sites-enabled/`)
+- Блоки `server`: порт 80 (`server_name devops.local`) — перенаправление `return 301 https://$host$request_uri;`; порт 443 (`ssl`) — раздача ресурса, `ssl_protocols TLSv1.2 TLSv1.3`
+- Каталог ресурса: `/var/www/devops-site`, владелец `devops:devops`, права каталогов 755, файлов 644 (доставка: `scripts/deploy.sh`, rsync с `--chmod=D755,F644`)
+- Сертификат: `/etc/ssl/certs/devops.crt`, права 644, владелец root; закрытый ключ: `/etc/ssl/private/devops.key`, права 600, владелец root
+- Команда формирования сертификата:
+  `sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/ssl/private/devops.key -out /etc/ssl/certs/devops.crt -subj "/CN=devops.local" -addext "subjectAltName=DNS:devops.local"`
+- Срок действия: 365 дней, истекает Oct 23 19:11:12 2027 (`sudo openssl x509 -enddate -noout -in /etc/ssl/certs/devops.crt`)
+- Применение конфигурации: `sudo nginx -t && sudo systemctl reload nginx` (не `restart`)
+- Порты 80 и 443 разрешены правилами UFW из раздела 6 (правила `Nginx Full` не добавлялись)
