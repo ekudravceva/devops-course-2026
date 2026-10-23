@@ -49,15 +49,29 @@
 | 02-keys-configured | после настройки ключа и `~/.ssh/config` (задание 1) |
 | 03-ssh-hardened | после усиления защиты SSH (задание 2) |
 | 04-nginx-https | после установки Nginx и перевода ресурса на HTTPS (ПР № 6, задание 2) |
+| 05-docker-compose | после запуска проекта «приложение + СУБД» (ПР № 7, задание 2) |
 
 ## 8. Веб-сервер
 - Устанавливаемый пакет: `nginx` (`sudo apt install -y nginx`); стандартный ресурс отключён удалением ссылки `/etc/nginx/sites-enabled/default`
 - Конфигурация ресурса: `/etc/nginx/sites-available/devops-site`, активируется ссылкой в `/etc/nginx/sites-enabled/` (`sudo ln -s /etc/nginx/sites-available/devops-site /etc/nginx/sites-enabled/`)
 - Блоки `server`: порт 80 (`server_name devops.local`) — перенаправление `return 301 https://$host$request_uri;`; порт 443 (`ssl`) — раздача ресурса, `ssl_protocols TLSv1.2 TLSv1.3`
-- Каталог ресурса: `/var/www/devops-site`, владелец `devops:devops`, права каталогов 755, файлов 644 (доставка: `scripts/deploy.sh`, rsync с `--chmod=D755,F644`)
+- Каталог ресурса: `/var/www/devops-site`, владелец `devops:devops`, права каталогов 755, файлов 644 (доставка: `scripts/deploy.sh`; права D755/F644 задаются `rsync --chmod` либо командой `chmod` по ssh, если встроенный rsync macOS не поддерживает `--chmod`)
 - Сертификат: `/etc/ssl/certs/devops.crt`, права 644, владелец root; закрытый ключ: `/etc/ssl/private/devops.key`, права 600, владелец root
 - Команда формирования сертификата:
   `sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/ssl/private/devops.key -out /etc/ssl/certs/devops.crt -subj "/CN=devops.local" -addext "subjectAltName=DNS:devops.local"`
-- Срок действия: 365 дней, истекает Oct 23 19:11:12 2027 (`sudo openssl x509 -enddate -noout -in /etc/ssl/certs/devops.crt`)
+- Срок действия: 365 дней, истекает 23.10.2027 (`sudo openssl x509 -enddate -noout -in /etc/ssl/certs/devops.crt`)
 - Применение конфигурации: `sudo nginx -t && sudo systemctl reload nginx` (не `restart`)
 - Порты 80 и 443 разрешены правилами UFW из раздела 6 (правила `Nginx Full` не добавлялись)
+
+## 9. Контейнеризация
+- Docker Engine: установлен из официального репозитория Docker (`/etc/apt/sources.list.d/docker.sources`, ключ `/etc/apt/keyrings/docker.asc`), пакеты `docker-ce`, `docker-ce-cli`, `containerd.io`, `docker-buildx-plugin`, `docker-compose-plugin`; версия: 29.9.2 (`docker version`), Compose: v5.6.1 (`docker compose version`); пакет `docker.io` из репозитория дистрибутива не используется
+- Участники группы `docker`: `devops` (добавлен командой `sudo usermod -aG docker devops`; вступает в силу в новой SSH-сессии). Членство в группе равносильно правам root: пользователь может смонтировать каталог `/` в контейнер на запись, поэтому в группу включаются только учётные записи с правом sudo
+- Расположение проекта на сервере: `~/app` (`/home/devops/app`); имя проекта Compose — `app` (по имени каталога), контейнеры `app-app-1` и `app-db-1`; исходный код доставляется с хоста командой `rsync -avz --delete --exclude=.env app/ devops:app/`
+- Файл переменных окружения: `~/app/.env`, права 600, владелец `devops`; создаётся на сервере из шаблона `.env.example` (пароль СУБД генерируется командой `openssl rand -hex 16`), в репозиторий не включается (`.gitignore`) и исключён из образа (`.dockerignore`) и из синхронизации (`--exclude=.env`)
+- Образ приложения: `devops-app:1.0` (основа `python:3.12-slim`, процесс работает от пользователя `app`, не от root); СУБД: `postgres:16-alpine` (основная версия закреплена)
+- Публикуемые порты: приложение — `127.0.0.1:5000:5000` (только локальный адрес сервера); порт СУБД 5432 не публикуется, приложение обращается к СУБД по имени сервиса `db` в сети проекта. Публикация порта на `0.0.0.0` недопустима: правила Docker обрабатываются раньше правил UFW, и порт оказывается доступен из сети
+- Сеть проекта: `app_backend` (пользовательская сеть типа bridge, встроенный DNS разрешает имена сервисов)
+- Именованные тома: `app_db_data` (каталог данных СУБД `/var/lib/postgresql/data`); `docker compose down` том сохраняет, `docker compose down -v` удаляет данные безвозвратно
+- Обратный прокси-сервер: в блок HTTPS файла `/etc/nginx/sites-available/devops-site` добавлено расположение `location /app/` с `proxy_pass http://127.0.0.1:5000/;` и заголовками `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`; статический ресурс (`location /`) сохранён; применение: `sudo nginx -t && sudo systemctl reload nginx`
+- Запуск и остановка: `cd ~/app && docker compose up -d --build` / `docker compose down`; службы имеют политику `restart: unless-stopped` и поднимаются после перезагрузки
+- Проверка: `docker compose ps` (у `db` состояние `healthy`), `curl --cacert ~/devops.crt https://devops.local/app/`, `scripts/audit.sh` (раздел [5])
