@@ -1,0 +1,7 @@
+---
+app_image: "ghcr.io/ekudravceva/devops-ci-app"
+app_tag: "085884ee53cc867f1f0206c0356731faa6c43c64"
+app_platform: "linux/amd64"
+app_container_name: "devops-ci-app"
+app_host_port: 5000
+app_internal_port: 5000
