@@ -75,3 +75,58 @@
 - Обратный прокси-сервер: в блок HTTPS файла `/etc/nginx/sites-available/devops-site` добавлено расположение `location /app/` с `proxy_pass http://127.0.0.1:5000/;` и заголовками `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`; статический ресурс (`location /`) сохранён; применение: `sudo nginx -t && sudo systemctl reload nginx`
 - Запуск и остановка: `cd ~/app && docker compose up -d --build` / `docker compose down`; службы имеют политику `restart: unless-stopped` и поднимаются после перезагрузки
 - Проверка: `docker compose ps` (у `db` состояние `healthy`), `curl --cacert ~/devops.crt https://devops.local/app/`, `scripts/audit.sh` (раздел [5])
+
+## 10. Ansible
+
+Проект находится в каталоге `ansible/` репозитория `devops-course-2026`.
+
+Управляющий узел: основной компьютер с Ansible.
+Управляемый узел: Ubuntu Server 24.04, VM devops-vm, Host-only IP: ФАКТИЧЕСКИЙ_IP.
+SSH-порт: 22.
+
+### Inventory и учетные записи
+
+- `inventory/bootstrap.ini`: student, первоначальная настройка.
+- `inventory/prod.ini`: devops, ключ `~/.ssh/devops_vm`, sudo без пароля.
+
+### Роли
+
+- `base`: базовые пакеты, официальный Docker, зависимости модулей.
+- `ssh`: пользователь, открытый ключ, sudo, SSH и UFW.
+- `nginx`: reverse proxy, отключение default site, проверка и reload.
+- `app`: загрузка образа, контейнер и health-check.
+
+### Приложение
+
+- Образ: `ghcr.io/ekudravceva/devops-ci-app`.
+- Тег: 085884ee53cc867f1f0206c0356731faa6c43c64
+- Доступ к пакету: публичный, анонимное чтение.
+- Порт контейнера: 5000.
+- Публикация на VM: `127.0.0.1:5000`.
+- Внешний HTTP-порт: 80.
+- Health endpoint: `/health`.
+
+Для ARM64 VM устанавливается Docker arm64 и при необходимости
+регистрируется QEMU для AMD64-образа. Платформа приложения — `linux/amd64`.
+
+### Команды
+
+Все команды выполняются из каталога `ansible/`.
+
+Первоначальная настройка:
+
+```bash
+ansible-playbook -i inventory/bootstrap.ini site.yml --ask-pass --ask-become-pass
+```
+
+Повторное применение:
+
+```bash
+ansible-playbook site.yml
+```
+
+Read-only аудит:
+
+```bash
+ansible-playbook verify.yml
+```

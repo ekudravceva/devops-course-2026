@@ -2,10 +2,10 @@
 - name: Assert supported VM platform
   ansible.builtin.assert:
     that:
-      - ansible_distribution == "Ubuntu"
-      - ansible_distribution_version is version("24.04", "==")
-      - ansible_architecture in ["x86_64", "aarch64"]
-    fail_msg: "Требуется Ubuntu Server 24.04 amd64 или arm64"
+      - ansible_facts['distribution'] == "Ubuntu"
+      - ansible_facts['distribution_version'] in ["24.04", "26.04", "26.10"]
+      - ansible_facts['architecture'] in ["x86_64", "aarch64"]
+    fail_msg: "Требуется Ubuntu 24.04, 26.04 или 26.10; архитектура amd64 или arm64"
 
 - name: Install base packages and remote module dependencies
   ansible.builtin.apt:
@@ -26,10 +26,10 @@
     name: docker
     types: [deb]
     uris: https://download.docker.com/linux/ubuntu
-    suites: "{{ ansible_distribution_release }}"
+    suites: "{{ ansible_facts['distribution_release'] }}"
     components: [stable]
     architectures:
-      - "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] }}"
+      - "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_facts['architecture']] }}"
     signed_by: https://download.docker.com/linux/ubuntu/gpg
     state: present
 
@@ -55,7 +55,7 @@
     path: /proc/sys/fs/binfmt_misc/qemu-x86_64
     get_checksum: false
   register: amd64_emulation
-  when: ansible_architecture == "aarch64"
+  when: ansible_facts['architecture'] == "aarch64"
 
 - name: Register AMD64 emulation on ARM64 when missing
   ansible.builtin.command:
@@ -68,5 +68,5 @@
       - --install
       - amd64
   when:
-    - ansible_architecture == "aarch64"
+    - ansible_facts['architecture'] == "aarch64"
     - not amd64_emulation.stat.exists
